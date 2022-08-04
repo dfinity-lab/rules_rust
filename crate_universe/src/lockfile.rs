@@ -6,7 +6,6 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use std::str::FromStr;
 
 use anyhow::{bail, Context as AnyhowContext, Result};
 use hex::ToHex;
@@ -16,61 +15,6 @@ use sha2::{Digest as Sha2Digest, Sha256};
 use crate::config::Config;
 use crate::context::Context;
 use crate::splicing::{SplicingManifest, SplicingMetadata};
-
-#[derive(Debug)]
-pub enum LockfileKind {
-    Auto,
-    Bazel,
-    Cargo,
-}
-
-impl LockfileKind {
-    pub fn detect(path: &Path) -> Result<Self> {
-        let content = fs::read_to_string(path)?;
-
-        if serde_json::from_str::<Context>(&content).is_ok() {
-            return Ok(Self::Bazel);
-        }
-
-        if cargo_lock::Lockfile::from_str(&content).is_ok() {
-            return Ok(Self::Cargo);
-        }
-
-        bail!("Unknown Lockfile kind for {}", path.display())
-    }
-}
-
-impl FromStr for LockfileKind {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let lower = s.to_lowercase();
-        if lower == "auto" {
-            return Ok(Self::Auto);
-        }
-
-        if lower == "bazel" {
-            return Ok(Self::Bazel);
-        }
-
-        if lower == "cargo" {
-            return Ok(Self::Cargo);
-        }
-
-        bail!("Unknown LockfileKind: '{}'", s)
-    }
-}
-
-pub fn is_cargo_lockfile(path: &Path, kind: &LockfileKind) -> bool {
-    match kind {
-        LockfileKind::Auto => match LockfileKind::detect(path) {
-            Ok(kind) => matches!(kind, LockfileKind::Cargo),
-            Err(_) => false,
-        },
-        LockfileKind::Bazel => false,
-        LockfileKind::Cargo => true,
-    }
-}
 
 pub fn lock_context(
     mut context: Context,
@@ -247,7 +191,6 @@ mod test {
     use super::*;
 
     use std::collections::{BTreeMap, BTreeSet};
-    use std::fs;
 
     #[test]
     fn simple_digest() {
@@ -266,7 +209,7 @@ mod test {
 
         assert_eq!(
             digest,
-            Digest("4c8bc5de2d6d7acc7997ae9870e52bc0f0fcbc2b94076e61162078be6a69cc3b".to_owned())
+            Digest("9711073103bd532b7d9c2e32e805280d29fc8591c3e76f9fe489fc372e2866db".to_owned())
         );
     }
 
@@ -309,7 +252,7 @@ mod test {
 
         assert_eq!(
             digest,
-            Digest("f57abdb83edb3415ad39f74ad8c14082f5231fa94d21298cc9fef3076e032947".to_owned())
+            Digest("756a613410573552bb8a85d6fcafd24a9df3000b8d943bf74c38bda9c306ef0e".to_owned())
         );
     }
 
@@ -340,7 +283,7 @@ mod test {
 
         assert_eq!(
             digest,
-            Digest("fb5d7854dae366d4a9ff135208c28f08c14c2608dd6c5aa1b35b6e677dd53c06".to_owned())
+            Digest("851b789765d8ee248fd3d55840ffd702ba2f8b0ca6aed2faa45ea63d1b011a99".to_owned())
         );
     }
 
@@ -389,59 +332,7 @@ mod test {
 
         assert_eq!(
             digest,
-            Digest("2b32833e4265bce03df70dbb9c2b32a78879cc02fbe88a481e3fe4a17812aca9".to_owned())
+            Digest("a9f7ea66f1b04331f8e09c64cd0b972e4c2a136907d7ef90e81ae2654e3c002c".to_owned())
         );
-    }
-
-    #[test]
-    fn detect_bazel_lockfile() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let lockfile = temp_dir.as_ref().join("lockfile");
-        fs::write(
-            &lockfile,
-            serde_json::to_string(&crate::context::Context::default()).unwrap(),
-        )
-        .unwrap();
-
-        let kind = LockfileKind::detect(&lockfile).unwrap();
-        assert!(matches!(kind, LockfileKind::Bazel));
-    }
-
-    #[test]
-    fn detect_cargo_lockfile() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let lockfile = temp_dir.as_ref().join("lockfile");
-        fs::write(
-            &lockfile,
-            textwrap::dedent(
-                r#"
-                version = 3
-
-                [[package]]
-                name = "detect"
-                version = "0.1.0"
-                "#,
-            ),
-        )
-        .unwrap();
-
-        let kind = LockfileKind::detect(&lockfile).unwrap();
-        assert!(matches!(kind, LockfileKind::Cargo));
-    }
-
-    #[test]
-    fn detect_invalid_lockfile() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let lockfile = temp_dir.as_ref().join("lockfile");
-        fs::write(&lockfile, "]} invalid {[").unwrap();
-
-        assert!(LockfileKind::detect(&lockfile).is_err());
-    }
-
-    #[test]
-    fn detect_missing_lockfile() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let lockfile = temp_dir.as_ref().join("lockfile");
-        assert!(LockfileKind::detect(&lockfile).is_err());
     }
 }
