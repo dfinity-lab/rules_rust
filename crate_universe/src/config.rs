@@ -8,7 +8,7 @@ use std::path::Path;
 use std::{fmt, fs};
 
 use anyhow::Result;
-use cargo_lock::package::source::GitReference;
+use cargo_lock::package::GitReference;
 use cargo_metadata::Package;
 use semver::VersionReq;
 use serde::de::Visitor;
@@ -72,6 +72,9 @@ pub struct RenderConfig {
     /// Eg. `@rules_rust//rust/platform:{triple}`.
     #[serde(default = "default_platforms_template")]
     pub platforms_template: String,
+
+    /// The command to use for regenerating generated files.
+    pub regen_command: String,
 
     /// An optional configuration for rendirng content to be rendered into repositories.
     pub vendor_mode: Option<VendorMode>,
@@ -508,7 +511,6 @@ mod test {
 
         let config: Config = serde_json::from_str(&content).unwrap();
 
-        println!("{:#?}", config);
         // Annotations
         let annotation = config
             .annotations
