@@ -713,6 +713,7 @@ def construct_arguments(
         force_all_deps_direct = False,
         force_link = False,
         stamp = False,
+        remap_path_prefix = True,
         use_json_output = False,
         build_metadata = False,
         force_depend_on_objects = False):
@@ -877,7 +878,7 @@ def construct_arguments(
     rustc_flags.add("--codegen=debuginfo=" + compilation_mode.debug_info)
 
     # For determinism to help with build distribution and such
-    if hasattr(ctx.attr, "_source_path_prefix"):
+    if remap_path_prefix and hasattr(ctx.attr, "_source_path_prefix"):
         rustc_flags.add("--remap-path-prefix=${{pwd}}={}".format(ctx.attr._source_path_prefix[SourcePathPrefixInfo].source_path_prefix))
 
     if emit:
