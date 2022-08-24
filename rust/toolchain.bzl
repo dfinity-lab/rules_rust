@@ -14,6 +14,7 @@ def _rust_stdlib_filegroup_impl(ctx):
     core_files = []
     between_core_and_std_files = []
     std_files = []
+    test_files = []
     memchr_files = []
     alloc_files = []
     self_contained_files = [
@@ -24,7 +25,8 @@ def _rust_stdlib_filegroup_impl(ctx):
 
     std_rlibs = [f for f in rust_std if f.basename.endswith(".rlib")]
     if std_rlibs:
-        # std depends on everything
+        # test depends on std
+        # std depends on everything except test
         #
         # core only depends on alloc, but we poke adler in there
         # because that needs to be before miniz_oxide
@@ -39,14 +41,15 @@ def _rust_stdlib_filegroup_impl(ctx):
         between_core_and_std_files = [
             f
             for f in dot_a_files
-            if "alloc" not in f.basename and "compiler_builtins" not in f.basename and "core" not in f.basename and "adler" not in f.basename and "std" not in f.basename and "memchr" not in f.basename
+            if "alloc" not in f.basename and "compiler_builtins" not in f.basename and "core" not in f.basename and "adler" not in f.basename and "std" not in f.basename and "memchr" not in f.basename and "test" not in f.basename
         ]
         memchr_files = [f for f in dot_a_files if "memchr" in f.basename]
         std_files = [f for f in dot_a_files if "std" in f.basename]
+        test_files = [f for f in dot_a_files if "test" in f.basename]
 
-        partitioned_files_len = len(alloc_files) + len(between_alloc_and_core_files) + len(core_files) + len(between_core_and_std_files) + len(memchr_files) + len(std_files)
+        partitioned_files_len = len(alloc_files) + len(between_alloc_and_core_files) + len(core_files) + len(between_core_and_std_files) + len(memchr_files) + len(std_files) + len(test_files)
         if partitioned_files_len != len(dot_a_files):
-            partitioned = alloc_files + between_alloc_and_core_files + core_files + between_core_and_std_files + memchr_files + std_files
+            partitioned = alloc_files + between_alloc_and_core_files + core_files + between_core_and_std_files + memchr_files + std_files + test_files
             for f in sorted(partitioned):
                 # buildifier: disable=print
                 print("File partitioned: {}".format(f.basename))
@@ -63,6 +66,7 @@ def _rust_stdlib_filegroup_impl(ctx):
             core_files = core_files,
             between_core_and_std_files = between_core_and_std_files,
             std_files = std_files,
+            test_files = test_files,
             memchr_files = memchr_files,
             alloc_files = alloc_files,
             self_contained_files = self_contained_files,
@@ -198,10 +202,18 @@ def _make_libstd_and_allocator_ccinfo(ctx, rust_std, allocator_library):
             transitive = [between_core_and_std_inputs],
             order = "topological",
         )
+        test_inputs = depset(
+            [
+                _ltl(f, ctx, cc_toolchain, feature_configuration)
+                for f in rust_stdlib_info.test_files
+            ],
+            transitive = [std_inputs],
+            order = "topological",
+        )
 
         link_inputs = cc_common.create_linker_input(
             owner = rust_std.label,
-            libraries = std_inputs,
+            libraries = test_inputs,
         )
 
         allocator_inputs = None
@@ -414,6 +426,11 @@ def _rust_toolchain_impl(ctx):
 
     rename_first_party_crates = ctx.attr._rename_first_party_crates[BuildSettingInfo].value
     third_party_dir = ctx.attr._third_party_dir[BuildSettingInfo].value
+    pipelined_compilation = ctx.attr._pipelined_compilation[BuildSettingInfo].value
+
+    experimental_use_cc_common_link = ctx.attr.experimental_use_cc_common_link[BuildSettingInfo].value
+    if experimental_use_cc_common_link and not ctx.attr.allocator_library:
+        fail("rust_toolchain.experimental_use_cc_common_link requires rust_toolchain.allocator_library to be set")
 
     if ctx.attr.rust_lib:
         # buildifier: disable=print
@@ -524,6 +541,8 @@ def _rust_toolchain_impl(ctx):
         # Experimental and incompatible flags
         _rename_first_party_crates = rename_first_party_crates,
         _third_party_dir = third_party_dir,
+        _pipelined_compilation = pipelined_compilation,
+        _experimental_use_cc_common_link = experimental_use_cc_common_link,
     )
     return [
         toolchain,
@@ -578,6 +597,10 @@ rust_toolchain = rule(
                 "For more details see: https://docs.bazel.build/versions/master/skylark/rules.html#configurations"
             ),
             mandatory = True,
+        ),
+        "experimental_use_cc_common_link": attr.label(
+            default = Label("//rust/settings:experimental_use_cc_common_link"),
+            doc = "Label to a boolean build setting that controls whether cc_common.link is used to link rust binaries.",
         ),
         "llvm_cov": attr.label(
             doc = "The location of the `llvm-cov` binary. Can be a direct source or a filegroup containing one item. If None, rust code is not instrumented for coverage.",
@@ -660,6 +683,9 @@ rust_toolchain = rule(
         ),
         "_cc_toolchain": attr.label(
             default = Label("@bazel_tools//tools/cpp:current_cc_toolchain"),
+        ),
+        "_pipelined_compilation": attr.label(
+            default = "@rules_rust//rust/settings:pipelined_compilation",
         ),
         "_rename_first_party_crates": attr.label(
             default = Label("//rust/settings:rename_first_party_crates"),
