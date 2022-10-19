@@ -81,7 +81,7 @@ extra_exec_rustc_flag(
 # improve cache utilization.
 source_path_prefix(
     name = "source_path_prefix",
-    build_setting_default = ".",
+    build_setting_default = "",
     visibility = ["//visibility:public"],
 )
 
