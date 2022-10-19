@@ -4,8 +4,6 @@ aspects_flags: &aspects_flags
   - "--config=clippy"
 default_linux_targets: &default_linux_targets
   - "//..."
-  # TODO: Switch manual tag to platform constraint after bazel 4.0.
-  - "//test/versioned_dylib:versioned_dylib_test"
 default_macos_targets: &default_macos_targets
   - "--"
   - "//..."
@@ -19,6 +17,9 @@ crate_universe_vendor_example_targets: &crate_universe_vendor_example_targets
   - "//vendor_external:crates_vendor"
   - "//vendor_local_manifests:crates_vendor"
   - "//vendor_local_pkgs:crates_vendor"
+  - "//vendor_remote_manifests:crates_vendor_manifests"
+  - "//vendor_remote_pkgs:crates_vendor_pkgs"
+crate_universe_unnamed_vendor_example_targets: &crate_universe_unnamed_vendor_example_targets
   - "//vendor_remote_manifests:crates_vendor_manifests"
   - "//vendor_remote_pkgs:crates_vendor_pkgs"
 tasks:
@@ -37,6 +38,8 @@ tasks:
       - "//..."
       - "//test/..."
       - "-//test/conflicting_deps:conflicting_deps_test"
+      # TODO: This test does not work on RBE
+      - "-//test/versioned_dylib:versioned_dylib_test"
   macos:
     build_targets: *default_macos_targets
     test_targets: *default_macos_targets
@@ -67,6 +70,8 @@ tasks:
       - "..."
       - "//test/..."
       - "-//test/conflicting_deps:conflicting_deps_test"
+      # TODO: This test does not work on RBE
+      - "-//test/versioned_dylib:versioned_dylib_test"
     build_flags: *aspects_flags
   rbe_ubuntu1604_rolling_with_aspects:
     name: RBE Rolling Bazel Version With Aspects
@@ -80,6 +85,8 @@ tasks:
       - "..."
       - "//test/..."
       - "-//test/conflicting_deps:conflicting_deps_test"
+      # TODO: This test does not work on RBE
+      - "-//test/versioned_dylib:versioned_dylib_test"
     build_flags: *aspects_flags
     soft_fail: yes
     bazel: "rolling"
@@ -151,6 +158,7 @@ tasks:
     bazel: "rolling"
   ubuntu1804:
     name: "Min Bazel Version"
+    # If updating the minimum bazel version, please also update /docs/index.md
     bazel: "5.0.0"
     platform: ubuntu1804
     build_targets: *default_linux_targets
@@ -297,6 +305,16 @@ tasks:
     test_targets:
       - "//..."
     build_flags: *aspects_flags
+  crate_universe_unnamed_examples_ubuntu2004:
+    name: Crate Universe Unnamed Examples
+    platform: ubuntu2004
+    working_directory: examples/crate_universe_unnamed
+    run_targets: *crate_universe_unnamed_vendor_example_targets
+    build_targets:
+      - "//..."
+    test_targets:
+      - "//..."
+    build_flags: *aspects_flags
   crate_universe_rbe_ubuntu1604:
     name: Crate Universe Examples
     platform: rbe_ubuntu1604
@@ -310,11 +328,34 @@ tasks:
     test_targets:
       - "//..."
     build_flags: *aspects_flags
+  crate_universe_unnamed_rbe_ubuntu1604:
+    name: Crate Universe Unnamed Examples
+    platform: rbe_ubuntu1604
+    working_directory: examples/crate_universe_unnamed
+    shell_commands:
+      - sed -i 's/^# load("@bazelci_rules/load("@bazelci_rules/' WORKSPACE.bazel
+      - sed -i 's/^# rbe_preconfig/rbe_preconfig/' WORKSPACE.bazel
+    run_targets: *crate_universe_unnamed_vendor_example_targets
+    build_targets:
+      - "//..."
+    test_targets:
+      - "//..."
+    build_flags: *aspects_flags
   crate_universe_examples_macos:
     name: Crate Universe Examples
     platform: macos
     working_directory: examples/crate_universe
     run_targets: *crate_universe_vendor_example_targets
+    build_targets:
+      - "//..."
+    test_targets:
+      - "//..."
+    build_flags: *aspects_flags
+  crate_universe_unnamed_examples_macos:
+    name: Crate Universe Unnamed Examples
+    platform: macos
+    working_directory: examples/crate_universe_unnamed
+    run_targets: *crate_universe_unnamed_vendor_example_targets
     build_targets:
       - "//..."
     test_targets:
@@ -333,6 +374,19 @@ tasks:
       - "//..."
     test_targets:
       - "//..."
+  crate_universe_unnamed_examples_windows:
+    name: Crate Universe Unnamed Examples
+    platform: windows
+    working_directory: examples/crate_universe_unnamed
+    batch_commands:
+      - echo startup --windows_enable_symlinks >> user.bazelrc
+      - echo build --enable_runfiles >> user.bazelrc  # this is not enabled by default on windows and is necessary for the cargo build scripts
+    run_targets: *crate_universe_unnamed_vendor_example_targets
+    build_flags: *aspects_flags
+    build_targets:
+      - "//..."
+    test_targets:
+      - "//..."
   cc_common_link_ubuntu2004:
     name: Build via cc_common.link
     platform: ubuntu2004
@@ -343,7 +397,32 @@ tasks:
       - "//..."
     build_flags:
       - "--@rules_rust//rust/settings:experimental_use_cc_common_link=True"
-
+  android_examples_ubuntu2004:
+    name: Android Examples
+    platform: ubuntu2004
+    working_directory: examples/android
+    build_targets:
+      - "//:android_app"
+  android_examples_macos:
+    name: Android Examples
+    platform: macos
+    working_directory: examples/android
+    build_targets:
+      - "//:android_app"
+  ios_examples:
+    name: iOS Examples
+    platform: macos
+    working_directory: examples/ios
+    build_targets:
+      - "//..."
+  ios_build:
+    name: iOS build script cross compile test
+    platform: macos
+    working_directory: examples/ios_build
+    test_flags:
+      - "--platforms=//:ios_x86_64"
+    test_targets:
+      - "//..."
 
 buildifier:
   version: latest
