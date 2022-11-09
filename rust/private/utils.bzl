@@ -223,6 +223,18 @@ def get_preferred_artifact(library_to_link, use_pic):
             library_to_link.dynamic_library
         )
 
+# The normal ctx.expand_location, but with an additional deduplication step.
+# We do this to work around a potential crash, see
+# https://github.com/bazelbuild/bazel/issues/16664
+def dedup_expand_location(ctx, input, targets = []):
+    return ctx.expand_location(input, _deduplicate(targets))
+
+def _deduplicate(xs):
+    return {x: True for x in xs}.keys()
+
+def concat(xss):
+    return [x for xs in xss for x in xs]
+
 def _expand_location_for_build_script_runner(ctx, env, data):
     """A trivial helper for `expand_dict_value_locations` and `expand_list_element_locations`
 
@@ -240,7 +252,7 @@ def _expand_location_for_build_script_runner(ctx, env, data):
             env = env.replace(directive, "$${pwd}/" + directive)
     return ctx.expand_make_variables(
         env,
-        ctx.expand_location(env, data),
+        dedup_expand_location(ctx, env, data),
         {},
     )
 

@@ -23,7 +23,13 @@ to Cargo.toml files.
 load("//rust/platform:triple_mappings.bzl", "system_to_dylib_ext", "triple_to_system")
 load("//rust/private:common.bzl", "rust_common")
 load("//rust/private:rustc.bzl", "BuildInfo")
-load("//rust/private:utils.bzl", "dedent", "find_toolchain")
+load(
+    "//rust/private:utils.bzl",
+    "concat",
+    "dedent",
+    "dedup_expand_location",
+    "find_toolchain",
+)
 
 RustAnalyzerInfo = provider(
     doc = "RustAnalyzerInfo holds rust crate metadata for targets",
@@ -182,14 +188,11 @@ def _create_single_crate(ctx, info):
             "include_dirs": [crate_root, _EXEC_ROOT_TEMPLATE + out_dir_path],
         }
 
-    # We deduplicate the entries from each of the additional targets to work around
-    # https://github.com/bazelbuild/bazel/issues/16664
-    #
     # TODO: The only imagined use case is an env var holding a filename in the workspace passed to a
     # macro like include_bytes!. Other use cases might exist that require more complex logic.
-    expand_targets = _deduplicate(_concat([getattr(ctx.rule.attr, attr, []) for attr in ["data", "compile_data"]]))
+    expand_targets = concat([getattr(ctx.rule.attr, attr, []) for attr in ["data", "compile_data"]])
 
-    crate["env"].update({k: ctx.expand_location(v, expand_targets) for k, v in info.env.items()})
+    crate["env"].update({k: dedup_expand_location(ctx, v, expand_targets) for k, v in info.env.items()})
 
     # Omit when a crate appears to depend on itself (e.g. foo_test crates).
     # It can happen a single source file is present in multiple crates - there can
@@ -207,12 +210,6 @@ def _create_single_crate(ctx, info):
     if info.proc_macro_dylib_path != None:
         crate["proc_macro_dylib_path"] = _EXEC_ROOT_TEMPLATE + info.proc_macro_dylib_path
     return crate
-
-def _deduplicate(xs):
-    return {x: True for x in xs}.keys()
-
-def _concat(xss):
-    return [x for xs in xss for x in xs]
 
 def _rust_analyzer_toolchain_impl(ctx):
     toolchain = platform_common.ToolchainInfo(
