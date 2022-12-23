@@ -663,6 +663,9 @@ _common_attrs = {
     "_extra_rustc_flags": attr.label(
         default = Label("//:extra_rustc_flags"),
     ),
+    "_source_path_prefix": attr.label(
+        default = Label("//:source_path_prefix"),
+    ),
     "_import_macro_dep": attr.label(
         default = Label("//util/import"),
         cfg = "exec",
