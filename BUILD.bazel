@@ -11,6 +11,7 @@ load(
     "is_proc_macro_dep",
     "is_proc_macro_dep_enabled",
     "output_diagnostics",
+    "source_path_prefix"
 )
 
 exports_files(["LICENSE"])
@@ -92,6 +93,15 @@ extra_exec_rustc_flags(
 extra_exec_rustc_flag(
     name = "extra_exec_rustc_flag",
     build_setting_default = "",
+    visibility = ["//visibility:public"],
+)
+
+# This setting may be used to override the prefix for source paths rustc embeds into build artifacts.
+# Setting this setting to a fixed value (e.g., "/source/") can help achieve reproducible builds and
+# improve cache utilization.
+source_path_prefix(
+    name = "source_path_prefix",
+    build_setting_default = ".",
     visibility = ["//visibility:public"],
 )
 
