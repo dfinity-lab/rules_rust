@@ -76,6 +76,7 @@ pub(crate) fn process_json(line: String, error_format: ErrorFormat) -> LineOutpu
         Ok(RustcMessage::Message(rendered)) => {
             output_based_on_error_format(line, rendered, error_format)
         }
+
         _ => LineOutput::Skip,
     }
 }
@@ -105,6 +106,7 @@ pub(crate) fn stop_on_rmeta_completion(
         Ok(RustcMessage::Message(rendered)) => {
             output_based_on_error_format(line, rendered, error_format)
         }
+
         _ => LineOutput::Skip,
     }
 }

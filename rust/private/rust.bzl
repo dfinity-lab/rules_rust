@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# buildifier: disable=module-docstring
+"""Rust rule implementations"""
+
 load("@bazel_skylib//lib:paths.bzl", "paths")
 load("//rust/private:common.bzl", "rust_common")
 load("//rust/private:rustc.bzl", "rustc_compile_action")
@@ -98,7 +99,7 @@ def _determine_lib_name(name, crate_type, toolchain, lib_hash = None):
               "please file an issue!").format(crate_type))
 
     prefix = "lib"
-    if (toolchain.target_triple.find("windows") != -1) and crate_type not in ("lib", "rlib"):
+    if toolchain.target_triple and toolchain.target_triple.system == "windows" and crate_type not in ("lib", "rlib"):
         prefix = ""
     if toolchain.target_arch == "wasm32" and crate_type == "cdylib":
         prefix = ""
@@ -288,6 +289,7 @@ def _rust_library_common(ctx, crate_type):
             sibling = rust_lib,
         )
 
+
     rust_metadata = None
     rust_metadata_build_output = None
     if can_build_metadata(toolchain, ctx, crate_type) and not ctx.attr.disable_pipelining:
@@ -302,6 +304,7 @@ def _rust_library_common(ctx, crate_type):
                 _rustc_output_name(rust_metadata_name),
                 sibling = rust_metadata,
             )
+
 
     deps = transform_deps(ctx.attr.deps)
     proc_macro_deps = transform_deps(ctx.attr.proc_macro_deps + get_import_macro_deps(ctx))
@@ -327,6 +330,7 @@ def _rust_library_common(ctx, crate_type):
             rustc_env_files = ctx.files.rustc_env_files,
             is_test = False,
             compile_data = depset(ctx.files.compile_data),
+            compile_data_targets = depset(ctx.attr.compile_data),
             owner = ctx.label,
         ),
         output_hash = output_hash,
@@ -372,6 +376,7 @@ def _rust_binary_impl(ctx):
             rustc_env_files = ctx.files.rustc_env_files,
             is_test = False,
             compile_data = depset(ctx.files.compile_data),
+            compile_data_targets = depset(ctx.attr.compile_data),
             owner = ctx.label,
         ),
     )
@@ -414,6 +419,10 @@ def _rust_test_impl(ctx):
             compile_data = depset(ctx.files.compile_data, transitive = [crate.compile_data])
         else:
             compile_data = depset(ctx.files.compile_data)
+        if crate.compile_data_targets:
+            compile_data_targets = depset(ctx.attr.compile_data, transitive = [crate.compile_data_targets])
+        else:
+            compile_data_targets = depset(ctx.attr.compile_data)
         rustc_env_files = ctx.files.rustc_env_files + crate.rustc_env_files
         rustc_env = dict(crate.rustc_env)
         rustc_env.update(**ctx.attr.rustc_env)
@@ -433,6 +442,7 @@ def _rust_test_impl(ctx):
             rustc_env_files = rustc_env_files,
             is_test = True,
             compile_data = compile_data,
+            compile_data_targets = compile_data_targets,
             wrapped_crate_type = crate.type,
             owner = ctx.label,
         )
@@ -465,6 +475,7 @@ def _rust_test_impl(ctx):
             rustc_env_files = ctx.files.rustc_env_files,
             is_test = True,
             compile_data = depset(ctx.files.compile_data),
+            compile_data_targets = depset(ctx.attr.compile_data),
             owner = ctx.label,
         )
 
@@ -672,6 +683,9 @@ _common_attrs = {
     "_error_format": attr.label(
         default = Label("//:error_format"),
     ),
+    "_output_diagnostics": attr.label(
+        default = Label("//:output_diagnostics"),
+    ),
     "_extra_exec_rustc_flag": attr.label(
         default = Label("//:extra_exec_rustc_flag"),
     ),
@@ -683,6 +697,9 @@ _common_attrs = {
     ),
     "_extra_rustc_flags": attr.label(
         default = Label("//:extra_rustc_flags"),
+    ),
+    "_source_path_prefix": attr.label(
+        default = Label("//:source_path_prefix"),
     ),
     "_import_macro_dep": attr.label(
         default = Label("//util/import"),
@@ -877,7 +894,16 @@ rust_static_library = rule(
 
 rust_shared_library = rule(
     implementation = _rust_shared_library_impl,
-    attrs = dict(_common_attrs.items()),
+    attrs = dict(
+        _common_attrs.items() + _experimental_use_cc_common_link_attrs.items() + {
+            "_grep_includes": attr.label(
+                allow_single_file = True,
+                cfg = "exec",
+                default = Label("@bazel_tools//tools/cpp:grep-includes"),
+                executable = True,
+            ),
+        }.items(),
+    ),
     fragments = ["cpp"],
     host_fragments = ["cpp"],
     toolchains = [
@@ -1208,6 +1234,7 @@ rust_test = rule(
             crate = ":hello_lib",
             # You may add other deps that are specific to the test configuration
             deps = ["//some/dev/dep"],
+        )
         ```
 
         Run the test with `bazel test //hello_lib:hello_lib_test`. The crate

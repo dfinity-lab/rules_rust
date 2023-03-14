@@ -16,6 +16,7 @@
 
 load(
     "@bazel_tools//tools/build_defs/cc:action_names.bzl",
+    "CPP_LINK_DYNAMIC_LIBRARY_ACTION_NAME",
     "CPP_LINK_EXECUTABLE_ACTION_NAME",
 )
 load("//rust/private:common.bzl", "rust_common")
@@ -95,6 +96,11 @@ is_proc_macro_dep_enabled = rule(
     build_setting = config.bool(flag = True),
 )
 
+SourcePathPrefixInfo = provider(
+    doc = "Remap source path prefixes in all output, including compiler diagnostics, debug information, macro expansions to a path",
+    fields = {"source_path_prefix": "string The path to substitute ${pwd} for"},
+)
+
 def _get_rustc_env(attr, toolchain, crate_name):
     """Gathers rustc environment variables
 
@@ -112,8 +118,13 @@ def _get_rustc_env(attr, toolchain, crate_name):
         patch, pre = patch.split("-", 1)
     else:
         pre = ""
+
+    target_arch = ""
+    if toolchain.target_triple:
+        target_arch = toolchain.target_triple.arch
+
     result = {
-        "CARGO_CFG_TARGET_ARCH": toolchain.target_arch,
+        "CARGO_CFG_TARGET_ARCH": target_arch,
         "CARGO_CFG_TARGET_OS": toolchain.os,
         "CARGO_CRATE_NAME": crate_name,
         "CARGO_PKG_AUTHORS": "",
@@ -348,12 +359,13 @@ def get_cc_user_link_flags(ctx):
     """
     return ctx.fragments.cpp.linkopts
 
-def get_linker_and_args(ctx, attr, cc_toolchain, feature_configuration, rpaths):
+def get_linker_and_args(ctx, attr, crate_type, cc_toolchain, feature_configuration, rpaths):
     """Gathers cc_common linker information
 
     Args:
         ctx (ctx): The current target's context object
         attr (struct): Attributes to use in gathering linker args
+        crate_type (str): The target crate's type (i.e. "bin", "proc-macro", etc.).
         cc_toolchain (CcToolchain): cc_toolchain for which we are creating build variables.
         feature_configuration (FeatureConfiguration): Feature configuration to be queried.
         rpaths (depset): Depset of directories where loader will look for libraries at runtime.
@@ -367,6 +379,14 @@ def get_linker_and_args(ctx, attr, cc_toolchain, feature_configuration, rpaths):
     """
     user_link_flags = get_cc_user_link_flags(ctx)
 
+    if crate_type == "proc-macro":
+        # Proc macros get compiled as shared libraries to be loaded by the compiler.
+        is_linking_dynamic_library = True
+        action_name = CPP_LINK_DYNAMIC_LIBRARY_ACTION_NAME
+    else:
+        is_linking_dynamic_library = False
+        action_name = CPP_LINK_EXECUTABLE_ACTION_NAME
+
     # Add linkopt's from dependencies. This includes linkopts from transitive
     # dependencies since they get merged up.
     for dep in getattr(attr, "deps", []):
@@ -377,23 +397,23 @@ def get_linker_and_args(ctx, attr, cc_toolchain, feature_configuration, rpaths):
     link_variables = cc_common.create_link_variables(
         feature_configuration = feature_configuration,
         cc_toolchain = cc_toolchain,
-        is_linking_dynamic_library = False,
+        is_linking_dynamic_library = is_linking_dynamic_library,
         runtime_library_search_directories = rpaths,
         user_link_flags = user_link_flags,
     )
     link_args = cc_common.get_memory_inefficient_command_line(
         feature_configuration = feature_configuration,
-        action_name = CPP_LINK_EXECUTABLE_ACTION_NAME,
+        action_name = action_name,
         variables = link_variables,
     )
     link_env = cc_common.get_environment_variables(
         feature_configuration = feature_configuration,
-        action_name = CPP_LINK_EXECUTABLE_ACTION_NAME,
+        action_name = action_name,
         variables = link_variables,
     )
     ld = cc_common.get_tool_for_action(
         feature_configuration = feature_configuration,
-        action_name = CPP_LINK_EXECUTABLE_ACTION_NAME,
+        action_name = action_name,
     )
 
     return ld, link_args, link_env
@@ -441,11 +461,17 @@ def _symlink_for_ambiguous_lib(actions, toolchain, crate_info, lib):
     path_hash = abs(hash(lib.path))
     lib_name = get_lib_name_for_windows(lib) if toolchain.os.startswith("windows") else get_lib_name_default(lib)
 
-    prefix = "lib"
-    extension = ".a"
     if toolchain.os.startswith("windows"):
         prefix = ""
         extension = ".lib"
+    elif lib_name.endswith(".pic"):
+        # Strip the .pic suffix
+        lib_name = lib_name[:-4]
+        prefix = "lib"
+        extension = ".pic.a"
+    else:
+        prefix = "lib"
+        extension = ".a"
 
     # Ensure the symlink follows the lib<name>.a pattern on Unix-like platforms
     # or <name>.lib on Windows.
@@ -717,7 +743,7 @@ def construct_arguments(
         force_all_deps_direct = False,
         force_link = False,
         stamp = False,
-        remap_path_prefix = "",
+        remap_path_prefix = True,
         use_json_output = False,
         build_metadata = False,
         force_depend_on_objects = False):
@@ -746,7 +772,6 @@ def construct_arguments(
         force_link (bool, optional): Whether to add link flags to the command regardless of `emit`.
         stamp (bool, optional): Whether or not workspace status stamping is enabled. For more details see
             https://docs.bazel.build/versions/main/user-manual.html#flag--stamp
-        remap_path_prefix (str, optional): A value used to remap `${pwd}` to. If set to None, no prefix will be set.
         use_json_output (bool): Have rustc emit json and process_wrapper parse json messages to output rendered output.
         build_metadata (bool): Generate CLI arguments for building *only* .rmeta files. This requires use_json_output.
         force_depend_on_objects (bool): Force using `.rlib` object files instead of metadata (`.rmeta`) files even if they are available.
@@ -887,8 +912,8 @@ def construct_arguments(
     rustc_flags.add("--codegen=debuginfo=" + compilation_mode.debug_info)
 
     # For determinism to help with build distribution and such
-    if remap_path_prefix != None:
-        rustc_flags.add("--remap-path-prefix=${{pwd}}={}".format(remap_path_prefix))
+    if remap_path_prefix and hasattr(ctx.attr, "_source_path_prefix"):
+        rustc_flags.add("--remap-path-prefix=${{pwd}}={}".format(ctx.attr._source_path_prefix[SourcePathPrefixInfo].source_path_prefix))
 
     if emit:
         rustc_flags.add("--emit=" + ",".join(emit_with_paths))
@@ -908,8 +933,9 @@ def construct_arguments(
     rustc_flags.add_all(rust_std_paths, before_each = "-L", format_each = "%s")
     rustc_flags.add_all(rust_flags)
 
+    # Gather data path from crate_info since it is inherited from real crate for rust_doc and rust_test
     # Deduplicate data paths due to https://github.com/bazelbuild/bazel/issues/14681
-    data_paths = depset(direct = getattr(attr, "data", []) + getattr(attr, "compile_data", [])).to_list()
+    data_paths = depset(direct = getattr(attr, "data", []), transitive = [crate_info.compile_data_targets]).to_list()
 
     rustc_flags.add_all(
         expand_list_element_locations(
@@ -931,7 +957,9 @@ def construct_arguments(
                 rpaths = _compute_rpaths(toolchain, output_dir, dep_info, use_pic)
             else:
                 rpaths = depset([])
-            ld, link_args, link_env = get_linker_and_args(ctx, attr, cc_toolchain, feature_configuration, rpaths)
+
+            ld, link_args, link_env = get_linker_and_args(ctx, attr, crate_info.type, cc_toolchain, feature_configuration, rpaths)
+
             env.update(link_env)
             rustc_flags.add("--codegen=linker=" + ld)
             rustc_flags.add_joined("--codegen", link_args, join_with = " ", format_joined = "link-args=%s")
@@ -975,6 +1003,11 @@ def construct_arguments(
 
     if toolchain._rename_first_party_crates:
         env["RULES_RUST_THIRD_PARTY_DIR"] = toolchain._third_party_dir
+
+    if is_exec_configuration(ctx):
+        rustc_flags.add_all(toolchain.extra_exec_rustc_flags)
+    else:
+        rustc_flags.add_all(toolchain.extra_rustc_flags)
 
     # extra_rustc_flags apply to the target configuration, not the exec configuration.
     if hasattr(ctx.attr, "_extra_rustc_flags") and not is_exec_configuration(ctx):
@@ -1174,7 +1207,7 @@ def rustc_compile_action(
     # types that benefit from having debug information in a separate file.
     pdb_file = None
     dsym_folder = None
-    if crate_info.type in ("cdylib", "bin") and not crate_info.is_test:
+    if crate_info.type in ("cdylib", "bin"):
         if toolchain.os == "windows":
             pdb_file = ctx.actions.declare_file(crate_info.output.basename[:-len(crate_info.output.extension)] + "pdb", sibling = crate_info.output)
             action_outputs.append(pdb_file)
@@ -1203,6 +1236,7 @@ def rustc_compile_action(
                 executable = ctx.executable._process_wrapper,
                 inputs = compile_inputs,
                 outputs = [build_metadata] + [x for x in [rust_metadata_rustc_output] if x],
+
                 env = env,
                 arguments = args_metadata.all,
                 mnemonic = "RustcMetadata",
@@ -1265,6 +1299,25 @@ def rustc_compile_action(
 
         output_relative_to_package = crate_info.output.path[len(package_dir):]
 
+        # Compile actions that produce shared libraries create output of the form "libfoo.so" for linux and macos;
+        # cc_common.link expects us to pass "foo" to the name parameter. We cannot simply use crate_info.name because
+        # the name of the crate does not always match the name of output file, e.g a crate named foo-bar will produce
+        # a (lib)foo_bar output file.
+        if crate_info.type == "cdylib":
+            output_lib = crate_info.output.basename
+            if toolchain.os != "windows":
+                # Strip the leading "lib" prefix
+                output_lib = output_lib[3:]
+
+            # Strip the file extension
+            output_lib = output_lib[:-(1 + len(crate_info.output.extension))]
+
+            # Remove the basename (which contains the undesired 'lib' prefix and the file extension)
+            output_relative_to_package = output_relative_to_package[:-len(crate_info.output.basename)]
+
+            # Append the name of the library
+            output_relative_to_package = output_relative_to_package + output_lib
+
         cc_common.link(
             actions = ctx.actions,
             feature_configuration = feature_configuration,
@@ -1274,6 +1327,7 @@ def rustc_compile_action(
             name = output_relative_to_package,
             grep_includes = ctx.file._grep_includes,
             stamp = ctx.attr.stamp,
+            output_type = "executable" if crate_info.type == "bin" else "dynamic_library",
         )
 
         outputs = [crate_info.output]
@@ -1333,6 +1387,7 @@ def rustc_compile_action(
         output_group_info["build_metadata"] = depset([build_metadata])
         if rust_metadata_rustc_output:
             output_group_info["rust_metadata_rustc_output"] = depset([rust_metadata_rustc_output])
+
     if rust_lib_rustc_output:
         output_group_info["rust_lib_rustc_output"] = depset([rust_lib_rustc_output])
 
@@ -1762,7 +1817,7 @@ def _add_native_link_flags(args, dep_info, linkstamp_outs, ambiguous_libs, crate
     if toolchain.os == "windows":
         make_link_flags = _make_link_flags_windows
         get_lib_name = get_lib_name_for_windows
-    elif toolchain.os.startswith("mac") or toolchain.os.startswith("darwin"):
+    elif toolchain.os.startswith("mac") or toolchain.os.startswith("darwin") or toolchain.os.startswith("ios"):
         make_link_flags = _make_link_flags_darwin
         get_lib_name = get_lib_name_default
     else:
@@ -1897,6 +1952,19 @@ extra_rustc_flag = rule(
     ),
     implementation = _extra_rustc_flag_impl,
     build_setting = config.string(flag = True, allow_multiple = True),
+)
+
+def _source_path_prefix_impl(ctx):
+    return SourcePathPrefixInfo(source_path_prefix = ctx.build_setting_value)
+
+source_path_prefix = rule(
+    doc = (
+        "Specify the path for the compiler to remap the source path prefix in all output, including compiler diagnostics," +
+        "debug information, and macro expansions with `--@rules_rust//:static_path_prefix`." +
+        "Setting the prefix a fixed value enables reproducible builds that do not depend on the location of the source directory."
+    ),
+    implementation = _source_path_prefix_impl,
+    build_setting = config.string(flag = True),
 )
 
 def _extra_exec_rustc_flags_impl(ctx):

@@ -95,6 +95,15 @@ extra_exec_rustc_flag(
     visibility = ["//visibility:public"],
 )
 
+# This setting may be used to override the prefix for source paths rustc embeds into build artifacts.
+# Setting this setting to a fixed value (e.g., "/source/") can help achieve reproducible builds and
+# improve cache utilization.
+source_path_prefix(
+    name = "source_path_prefix",
+    build_setting_default = ".",
+    visibility = ["//visibility:public"],
+)
+
 # This setting is used by the clippy rules. See https://bazelbuild.github.io/rules_rust/rust_clippy.html
 label_flag(
     name = "clippy.toml",

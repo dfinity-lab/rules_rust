@@ -118,6 +118,7 @@ fn main() {
                 }
             },
         );
+
         if me {
             // If recv returns Ok(), a signal was sent in this channel so we should terminate the child process.
             // We can safely ignore the Result from kill() as we don't care if the process already terminated.

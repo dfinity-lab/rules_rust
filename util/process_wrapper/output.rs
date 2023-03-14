@@ -42,6 +42,8 @@ where
     let mut reader = io::BufReader::new(read_end);
     let mut output_writer = io::LineWriter::new(output_write_end);
     let mut file_writer = opt_file_write_end.as_mut().map(io::LineWriter::new);
+
+
     loop {
         let mut line = String::new();
         let read_bytes = reader.read_line(&mut line)?;
