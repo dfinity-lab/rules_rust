@@ -40,6 +40,7 @@ PAGES = dict([
         symbols = [
             "cargo_bootstrap_repository",
             "cargo_build_script",
+            "cargo_dep_env",
             "cargo_env",
         ],
     ),
@@ -107,6 +108,7 @@ PAGES = dict([
         symbols = [
             "rustfmt_aspect",
             "rustfmt_test",
+            "rustfmt_toolchain",
         ],
     ),
     page(
@@ -124,6 +126,7 @@ PAGES = dict([
         name = "rust_repositories",
         symbols = [
             "rules_rust_dependencies",
+            "rust_analyzer_toolchain_repository",
             "rust_register_toolchains",
             "rust_repositories",
             "rust_repository_set",

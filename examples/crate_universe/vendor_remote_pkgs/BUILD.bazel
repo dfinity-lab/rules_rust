@@ -1,4 +1,4 @@
-load("@rules_rust//crate_universe:defs.bzl", "crate", "crates_vendor")
+load("@rules_rust//crate_universe:defs.bzl", "crate", "crates_vendor", "render_config")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
 
 crates_vendor(
@@ -15,13 +15,19 @@ crates_vendor(
         ),
         "hyper": crate.spec(
             features = ["full"],
-            version = "0.14",
+            version = "0.14.22",
         ),
         "mime": crate.spec(
             version = "0.3",
         ),
         "serde_json": crate.spec(
             version = "1.0",
+        ),
+        # TODO: This dependency is added and pinned forward due to the
+        # following issue: https://github.com/hyperium/hyper/issues/3038
+        "socket2": crate.spec(
+            features = ["all"],
+            version = "0.4.7",
         ),
         # TODO: This is pinned due to a build failure introduced by 1.17
         # bringing in windows-sys and introduces linker errors.
@@ -45,6 +51,11 @@ crates_vendor(
             version = "0.3",
         ),
     },
+    # Demonstrate that `crates_vendor` can accept a render_config. To regen this target, simply
+    # navigate to this directory and run `bazel run //vendor_remote_pkgs:crates_vendor_pkgs`.
+    render_config = render_config(
+        regen_command = "See https://github.com/bazelbuild/rules_rust/blob/main/examples/crate_universe/vendor_local_pkgs/BUILD.bazel",
+    ),
 )
 
 rust_binary(

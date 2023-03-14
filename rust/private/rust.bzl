@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# buildifier: disable=module-docstring
+"""Rust rule implementations"""
+
 load("@bazel_skylib//lib:paths.bzl", "paths")
 load("//rust/private:common.bzl", "rust_common")
 load("//rust/private:rustc.bzl", "rustc_compile_action")
@@ -98,7 +99,7 @@ def _determine_lib_name(name, crate_type, toolchain, lib_hash = None):
               "please file an issue!").format(crate_type))
 
     prefix = "lib"
-    if (toolchain.target_triple.find("windows") != -1) and crate_type not in ("lib", "rlib"):
+    if toolchain.target_triple and toolchain.target_triple.system == "windows" and crate_type not in ("lib", "rlib"):
         prefix = ""
     if toolchain.target_arch == "wasm32" and crate_type == "cdylib":
         prefix = ""
@@ -321,6 +322,7 @@ def _rust_library_common(ctx, crate_type):
             rustc_env_files = ctx.files.rustc_env_files,
             is_test = False,
             compile_data = depset(ctx.files.compile_data),
+            compile_data_targets = depset(ctx.attr.compile_data),
             owner = ctx.label,
         ),
         output_hash = output_hash,
@@ -366,6 +368,7 @@ def _rust_binary_impl(ctx):
             rustc_env_files = ctx.files.rustc_env_files,
             is_test = False,
             compile_data = depset(ctx.files.compile_data),
+            compile_data_targets = depset(ctx.attr.compile_data),
             owner = ctx.label,
         ),
     )
@@ -408,6 +411,10 @@ def _rust_test_impl(ctx):
             compile_data = depset(ctx.files.compile_data, transitive = [crate.compile_data])
         else:
             compile_data = depset(ctx.files.compile_data)
+        if crate.compile_data_targets:
+            compile_data_targets = depset(ctx.attr.compile_data, transitive = [crate.compile_data_targets])
+        else:
+            compile_data_targets = depset(ctx.attr.compile_data)
         rustc_env_files = ctx.files.rustc_env_files + crate.rustc_env_files
         rustc_env = dict(crate.rustc_env)
         rustc_env.update(**ctx.attr.rustc_env)
@@ -427,6 +434,7 @@ def _rust_test_impl(ctx):
             rustc_env_files = rustc_env_files,
             is_test = True,
             compile_data = compile_data,
+            compile_data_targets = compile_data_targets,
             wrapped_crate_type = crate.type,
             owner = ctx.label,
         )
@@ -459,6 +467,7 @@ def _rust_test_impl(ctx):
             rustc_env_files = ctx.files.rustc_env_files,
             is_test = True,
             compile_data = depset(ctx.files.compile_data),
+            compile_data_targets = depset(ctx.attr.compile_data),
             owner = ctx.label,
         )
 
@@ -738,10 +747,6 @@ _rust_test_attrs = dict({
             Specifies additional environment variables to set when the test is executed by bazel test.
             Values are subject to `$(rootpath)`, `$(execpath)`, location, and
             ["Make variable"](https://docs.bazel.build/versions/master/be/make-variables.html) substitution.
-
-            Execpath returns absolute path, and in order to be able to construct the absolute path we
-            need to wrap the test binary in a launcher. Using a launcher comes with complications, such as
-            more complicated debugger attachment.
         """),
     ),
     "use_libtest_harness": attr.bool(
@@ -878,7 +883,16 @@ rust_static_library = rule(
 
 rust_shared_library = rule(
     implementation = _rust_shared_library_impl,
-    attrs = dict(_common_attrs.items()),
+    attrs = dict(
+        _common_attrs.items() + _experimental_use_cc_common_link_attrs.items() + {
+            "_grep_includes": attr.label(
+                allow_single_file = True,
+                cfg = "exec",
+                default = Label("@bazel_tools//tools/cpp:grep-includes"),
+                executable = True,
+            ),
+        }.items(),
+    ),
     fragments = ["cpp"],
     host_fragments = ["cpp"],
     toolchains = [
@@ -1209,6 +1223,7 @@ rust_test = rule(
             crate = ":hello_lib",
             # You may add other deps that are specific to the test configuration
             deps = ["//some/dev/dep"],
+        )
         ```
 
         Run the test with `bazel test //hello_lib:hello_lib_test`. The crate

@@ -66,9 +66,12 @@ impl TryFrom<JsonValue> for RustcMessage {
 /// according to the original --error-format supplied.
 /// Only messages are returned, emits are ignored.
 pub(crate) fn process_json(line: String, error_format: ErrorFormat) -> LineOutput {
-    let parsed: JsonValue = line
-        .parse()
-        .expect("process wrapper error: expected json messages in pipeline mode");
+    let parsed: JsonValue = line.parse().unwrap_or_else(|_| {
+        panic!(
+            "process wrapper error: expected json messages in pipeline mode while parsing: {:?}",
+            &line
+        )
+    });
     match parsed.try_into() {
         Ok(RustcMessage::Message(rendered)) => output_based_on_error_format(line, rendered, error_format),
         _ => LineOutput::Skip,
@@ -86,10 +89,12 @@ pub(crate) fn stop_on_rmeta_completion(
     error_format: ErrorFormat,
     kill: &mut bool,
 ) -> LineOutput {
-    let parsed: JsonValue = line
-        .parse()
-        .expect("process wrapper error: expected json messages in pipeline mode");
-
+    let parsed: JsonValue = line.parse().unwrap_or_else(|_| {
+        panic!(
+            "process wrapper error: expected json messages in pipeline mode while parsing: {:?}",
+            &line
+        )
+    });
     match parsed.try_into() {
         Ok(RustcMessage::Emit(emit)) if emit == "metadata" => {
             *kill = true;
