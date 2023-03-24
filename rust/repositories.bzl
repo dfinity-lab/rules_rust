@@ -625,9 +625,6 @@ def rust_repository_set(
     Args:
         name (str): The name of the generated repository
         exec_triple (str): The Rust-style target that this compiler runs on
-        version (str): The version of the tool among "nightly", "beta', or an exact version.
-        versions (list, optional): A list of toolchain versions to download. This paramter only accepts one versions
-            per channel. E.g. `["1.65.0", "nightly/2022-11-02", "beta/2020-12-30"]`.
         include_rustc_srcs (bool, optional): **Deprecated** - instead see [rust_analyzer_toolchain_repository](#rust_analyzer_toolchain_repository).
         allocator_library (str, optional): Target that provides allocator functions when rust_library targets are
             embedded in a cc_binary.
@@ -652,19 +649,6 @@ def rust_repository_set(
     if include_rustc_srcs:
         # buildifier: disable=print
         print("include_rustc_srcs is deprecated. Instead see https://bazelbuild.github.io/rules_rust/flatten.html#rust_analyzer_toolchain_repository")
-
-    if version and versions:
-        fail("`version` and `versions` attributes are mutually exclusive. Update {} to use one".format(
-            name,
-        ))
-
-    if not version and not versions:
-        fail("`version` or `versions` attributes are required. Update {} to use one".format(
-            name,
-        ))
-
-    if version and not versions:
-        versions = [version]
 
     all_toolchain_names = []
     for target_triple in [exec_triple] + extra_target_triples:
